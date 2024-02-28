@@ -11,4 +11,5 @@
     <string name="not_device_admin">This app is not a device admin!</string>
     <string name="not_device_owner">This app is not the device owner!</string>
     <string name="check_update">Check for Update</string>
+    <string name="battery_service_channel">battery_service_channel</string>
 </resources>

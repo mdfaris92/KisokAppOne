@@ -1,12 +1,14 @@
 package com.enginecal.kioskapp;
 
+import androidx.activity.result.ActivityResult;
+import androidx.activity.result.ActivityResultCallback;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.appcompat.content.res.AppCompatResources;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
-
 import android.Manifest;
 import android.app.Activity;
 import android.app.KeyguardManager;
@@ -15,8 +17,10 @@ import android.app.NotificationManager;
 import android.app.admin.DevicePolicyManager;
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.ServiceConnection;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.net.Uri;
@@ -24,23 +28,21 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.CountDownTimer;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.PowerManager;
 import android.os.UserManager;
 import android.provider.Settings;
-import android.telecom.TelecomManager;
-import android.telephony.TelephonyManager;
 import android.util.Log;
 import android.view.Display;
 import android.view.KeyEvent;
 import android.view.View;
-import android.view.Window;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
+import com.enginecal.kioskapp.fgService.BleBatteryService;
 
-import java.lang.reflect.Method;
 
 @RequiresApi(api = Build.VERSION_CODES.O)
 public class MainActivity extends AppCompatActivity implements BatteryStateReceiver {
@@ -67,6 +69,10 @@ public class MainActivity extends AppCompatActivity implements BatteryStateRecei
 
     private PowerManager.WakeLock wakeLock;
     private static final int REQUEST_DISABLE_KEYGUARD = 1;
+
+    private BleBatteryService bleService = null;
+    private Boolean serviceBoundState = false;
+    private ServiceConnection sc = null;
 
 
 
@@ -157,6 +163,40 @@ public class MainActivity extends AppCompatActivity implements BatteryStateRecei
         registerReceiver(batteryReceiver,filter2);
 
 
+        sc = new ServiceConnection() {
+            @Override
+            public void onServiceConnected(ComponentName name, IBinder service) {
+                Log.d("faris-", "onServiceConnected");
+
+               BleBatteryService.LocalBinder binder = (BleBatteryService.LocalBinder)service;
+               bleService = binder.getService();
+                serviceBoundState = true;
+                ionServiceConnected();
+            }
+
+            @Override
+            public void onServiceDisconnected(ComponentName name) {
+                Log.d("faris-", "onServiceDisconnected");
+                serviceBoundState = false;
+                bleService = null;
+
+            }
+        };
+
+
+        startForegroundService();
+        tryToBindServiceIfRunning();
+
+
+        checkFloatingPermission();
+
+
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        unbindService(sc);
     }
 
     private void disableHeadsUpNotifications() {
@@ -193,7 +233,7 @@ public class MainActivity extends AppCompatActivity implements BatteryStateRecei
     }
 
     // This snippet hides the system bars.
-    private void hideSystemUI() {
+    private void    hideSystemUI() {
         // Set the IMMERSIVE flag.
         // Set the content to appear under the system bars so that the content
         // doesn't resize when the system bars hide and show.
@@ -434,4 +474,95 @@ public class MainActivity extends AppCompatActivity implements BatteryStateRecei
             setRequestedOrientation (ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
         }
     }
+
+    private void startForegroundService(){
+        // start the service
+        startForegroundService(new Intent(this, BleBatteryService.class));
+        tryToBindServiceIfRunning();
+
+    }
+
+    private void tryToBindServiceIfRunning(){
+       Intent i =  new Intent(this, BleBatteryService.class);
+       bindService(i,sc,0);
+
+    }
+    private void  ionServiceConnected(){
+       Log.e("Faris ---"," Service is connected work in it ");
+
+    }
+
+
+
+
+
+
+
+
+//    ==============================================================================================
+
+    private void showMessageForFloatingPermission(String message) {
+        new android.app.AlertDialog.Builder(MainActivity.this)
+                .setMessage(message)
+                .setPositiveButton("OK",  new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+
+                        checkFloatingPermission();
+
+                    }
+                })
+                .setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+
+                        //User opted not to use this feature
+                        //finish();
+
+                    }
+                })
+                .create()
+                .show();
+    }
+
+
+
+
+
+    //Helper method for checking over lay floating permission
+    public void checkFloatingPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (!Settings.canDrawOverlays(this)) {
+                Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:" + getPackageName()));
+                startActivityFloatingPermission.launch(intent);//this will open device settings for over lay permission window
+
+            }else{
+                Log.e("Faris--","Permission already granted ");
+            }
+        }
+    }
+
+
+    //Initialize ActivityResultLauncher. Note here that no need custom request code
+    ActivityResultLauncher<Intent> startActivityFloatingPermission = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(),
+            new ActivityResultCallback<ActivityResult>() {
+                @Override
+                public void onActivityResult(ActivityResult result) {
+                    if (result.getResultCode() == Activity.RESULT_OK) {
+                        //Permission granted
+                    }else{
+                        //If there is no permission allowed yet, still a dialog window will open unless a user opted not to use the feature.
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            if (!Settings.canDrawOverlays(MainActivity.this)) {
+                                // You don't have permission yet, show a dialog reasoning
+                                showMessageForFloatingPermission("To use this feature requires over lay permission");
+
+                            }
+                        }
+                    }
+                }
+            });
+
 }
